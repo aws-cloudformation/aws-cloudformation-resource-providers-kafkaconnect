@@ -1,6 +1,6 @@
 # AWS::KafkaConnect::Connector AutoScaling
 
-Details about auto scaling of a connector. 
+Details about auto scaling of a connector.
 
 ## Syntax
 
@@ -81,4 +81,3 @@ _Type_: Integer
 _Allowed Values_: <code>1</code> | <code>2</code> | <code>4</code> | <code>8</code>
 
 _Update requires_: [No interruption](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-updating-stacks-update-behaviors.html#update-no-interrupt)
-

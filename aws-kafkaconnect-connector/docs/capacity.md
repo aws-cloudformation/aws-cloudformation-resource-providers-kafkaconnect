@@ -26,7 +26,7 @@ To declare this entity in your AWS CloudFormation template, use the following sy
 
 #### AutoScaling
 
-Details about auto scaling of a connector. 
+Details about auto scaling of a connector.
 
 _Required_: Yes
 
@@ -43,4 +43,3 @@ _Required_: Yes
 _Type_: <a href="provisionedcapacity.md">ProvisionedCapacity</a>
 
 _Update requires_: [No interruption](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-updating-stacks-update-behaviors.html#update-no-interrupt)
-

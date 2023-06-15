@@ -193,4 +193,3 @@ For more information about using the `Fn::GetAtt` intrinsic function, see [Fn::G
 #### ConnectorArn
 
 Amazon Resource Name for the created Connector.
-

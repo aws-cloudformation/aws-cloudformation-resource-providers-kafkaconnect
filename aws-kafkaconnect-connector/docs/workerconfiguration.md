@@ -45,4 +45,3 @@ _Type_: String
 _Pattern_: <code>arn:(aws|aws-us-gov|aws-cn):kafkaconnect:.*</code>
 
 _Update requires_: [No interruption](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-updating-stacks-update-behaviors.html#update-no-interrupt)
-
