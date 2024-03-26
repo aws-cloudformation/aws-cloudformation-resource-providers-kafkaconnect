@@ -6,6 +6,8 @@ import software.amazon.awssdk.services.kafkaconnect.KafkaConnectClient;
 import software.amazon.awssdk.services.kafkaconnect.model.ConnectorState;
 import software.amazon.awssdk.services.kafkaconnect.model.DescribeConnectorRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.DescribeConnectorResponse;
+import software.amazon.awssdk.services.kafkaconnect.model.TagResourceRequest;
+import software.amazon.awssdk.services.kafkaconnect.model.UntagResourceRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.UpdateConnectorRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.UpdateConnectorResponse;
 import software.amazon.cloudformation.exceptions.CfnGeneralServiceException;
@@ -19,7 +21,9 @@ import software.amazon.cloudformation.proxy.ResourceHandlerRequest;
 import software.amazon.cloudformation.proxy.delay.Constant;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -79,6 +83,8 @@ public class UpdateHandler extends BaseHandlerStd {
         return ProgressEvent.progress(request.getDesiredResourceState(), callbackContext)
             .then(progress ->
                 verifyUpdatable(proxy, proxyClient, progress, "AWS-KafkaConnect-Connector::PreUpdateCheck"))
+            .then(progress -> updateTags(proxyClient, progress, request))
+            .then(progress -> verifyNonCreateOnlyFieldsHaveToBeUpdated(proxy, proxyClient, progress, request, callbackContext))
             .then(progress ->
                 initiateUpdateConnector(proxy, proxyClient, progress, "AWS-KafkaConnect-Connector::Update"))
             .then(progress ->
@@ -94,7 +100,7 @@ public class UpdateHandler extends BaseHandlerStd {
 
         return proxy.initiate(callGraph, proxyClient, progress.getResourceModel(), progress.getCallbackContext())
             .translateToServiceRequest(translator::translateToReadRequest)
-            .makeServiceCall(this::verifyResourceRunning)
+            .makeServiceCall(this::verifyResourceExists)
             .done(this::verifyUpdateFieldsNotCreateOnly);
     }
 
@@ -140,7 +146,7 @@ public class UpdateHandler extends BaseHandlerStd {
         return ProgressEvent.progress(updateRequest, callbackContext);
     }
 
-    private DescribeConnectorResponse verifyResourceRunning(
+    private DescribeConnectorResponse verifyResourceExists(
         final DescribeConnectorRequest describeConnectorRequest,
         final ProxyClient<KafkaConnectClient> proxyClient) {
 
@@ -148,13 +154,68 @@ public class UpdateHandler extends BaseHandlerStd {
             describeConnectorRequest, proxyClient, DESCRIBE_STATE_FAILURE_MESSAGE_PATTERN, exceptionTranslator);
         final String identifier = describeConnectorRequest.connectorArn();
 
-        if (ConnectorState.RUNNING != describeConnectorResponse.connectorState()) {
-            throw new CfnNotUpdatableException(ResourceModel.TYPE_NAME, identifier);
-        }
-
-        logger.log(String.format("State of resource %s with ID %s is RUNNING", ResourceModel.TYPE_NAME, identifier));
+        logger.log(String.format("Resource %s with ID %s exists", ResourceModel.TYPE_NAME, identifier));
 
         return describeConnectorResponse;
+    }
+
+    private ProgressEvent<ResourceModel, CallbackContext> updateTags(final ProxyClient<KafkaConnectClient> proxyClient,
+                                                                     final ProgressEvent<ResourceModel, CallbackContext> progress, ResourceHandlerRequest<ResourceModel> request) {
+
+        final ResourceModel desiredModel = request.getDesiredResourceState();
+        final String identifier = desiredModel.getConnectorArn();
+        final CallbackContext callbackContext = progress.getCallbackContext();
+
+        if (TagHelper.shouldUpdateTags(request)) {
+            final Map<String, String> previousTags = TagHelper.getPreviouslyAttachedTags(request);
+            final Map<String, String> desiredTags = TagHelper.getNewDesiredTags(request);
+            final Map<String, String> addedTags = TagHelper.generateTagsToAdd(previousTags, desiredTags);
+            final Set<String> removedTags = TagHelper.generateTagsToRemove(previousTags, desiredTags);
+
+            // calculate tags to remove based on key only
+            if (!removedTags.isEmpty()) {
+
+                final UntagResourceRequest untagResourceRequest = Translator.untagResourceRequest(desiredModel, removedTags);
+                try {
+                    proxyClient.injectCredentialsAndInvokeV2(untagResourceRequest, proxyClient.client()::untagResource);
+                    logger.log(String.format("Removed %d tags", removedTags.size()));
+                } catch (final AwsServiceException e) {
+                    throw exceptionTranslator.translateToCfnException(e, identifier);
+                }
+            }
+
+            // calculate tags to update based on Tags (key + value)
+            if (!addedTags.isEmpty()) {
+                final TagResourceRequest tagResourceRequest = Translator.tagResourceRequest(desiredModel, addedTags);
+                try {
+                    proxyClient.injectCredentialsAndInvokeV2(tagResourceRequest, proxyClient.client()::tagResource);
+                    logger.log(String.format("Added %d tags", addedTags.size()));
+                } catch (final AwsServiceException e) {
+                    throw exceptionTranslator.translateToCfnException(e, identifier);
+                }
+            }
+        }
+
+        return ProgressEvent.progress(desiredModel, callbackContext);
+    }
+
+
+    private ProgressEvent<ResourceModel, CallbackContext> verifyNonCreateOnlyFieldsHaveToBeUpdated(
+            final AmazonWebServicesClientProxy proxy,
+            final ProxyClient<KafkaConnectClient> proxyClient,
+            final ProgressEvent<ResourceModel, CallbackContext> progress,
+            final ResourceHandlerRequest<ResourceModel> request,
+            final CallbackContext callbackContext) {
+        final ResourceModel desiredModel = progress.getResourceModel();
+        final ResourceModel previousModel = request.getPreviousResourceState();
+        final boolean isCapacityEqual = desiredModel.getCapacity().equals(previousModel.getCapacity());
+        final boolean nonCreateOnlyFieldsHaveToBeUpdated = !(isCapacityEqual);
+
+        if(nonCreateOnlyFieldsHaveToBeUpdated) {
+            return ProgressEvent.progress(desiredModel, callbackContext);
+        }
+
+        return readHandler.handleRequest(proxy, request, callbackContext, proxyClient, logger);
     }
 
     private ProgressEvent<ResourceModel, CallbackContext> initiateUpdateConnector(

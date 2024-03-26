@@ -36,7 +36,7 @@ public class ExceptionTranslator {
         }
 
         if (exception instanceof BadRequestException) {
-            return new CfnInvalidRequestException(ResourceModel.TYPE_NAME, exception);
+            return new CfnInvalidRequestException(exception.getMessage(), exception);
         }
 
         if (exception instanceof ConflictException) {
@@ -51,6 +51,6 @@ public class ExceptionTranslator {
             return new CfnAccessDeniedException(ResourceModel.TYPE_NAME, exception);
         }
 
-        return new CfnGeneralServiceException(exception.getMessage(), exception);
+        return new CfnGeneralServiceException(exception);
     }
 }

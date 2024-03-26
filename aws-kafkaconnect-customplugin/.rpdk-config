@@ -1,0 +1,30 @@
+{
+    "artifact_type": "RESOURCE",
+    "typeName": "AWS::KafkaConnect::CustomPlugin",
+    "language": "java",
+    "runtime": "java17",
+    "entrypoint": "software.amazon.kafkaconnect.customplugin.HandlerWrapper::handleRequest",
+    "testEntrypoint": "software.amazon.kafkaconnect.customplugin.HandlerWrapper::testEntrypoint",
+    "settings": {
+        "version": false,
+        "subparser_name": null,
+        "verbose": 0,
+        "force": false,
+        "type_name": null,
+        "artifact_type": null,
+        "endpoint_url": null,
+        "region": null,
+        "target_schemas": [],
+        "profile": null,
+        "namespace": [
+            "software",
+            "amazon",
+            "kafkaconnect",
+            "customplugin"
+        ],
+        "codegen_template_path": "guided_aws",
+        "protocolVersion": "2.0.0"
+    },
+    "logProcessorEnabled": "true",
+    "executableEntrypoint": "software.amazon.kafkaconnect.customplugin.HandlerWrapperExecutable"
+}

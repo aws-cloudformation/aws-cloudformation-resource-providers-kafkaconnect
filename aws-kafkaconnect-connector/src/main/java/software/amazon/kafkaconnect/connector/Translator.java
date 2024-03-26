@@ -25,6 +25,8 @@ import software.amazon.awssdk.services.kafkaconnect.model.ScaleInPolicyDescripti
 import software.amazon.awssdk.services.kafkaconnect.model.ScaleInPolicyUpdate;
 import software.amazon.awssdk.services.kafkaconnect.model.ScaleOutPolicyDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.ScaleOutPolicyUpdate;
+import software.amazon.awssdk.services.kafkaconnect.model.TagResourceRequest;
+import software.amazon.awssdk.services.kafkaconnect.model.UntagResourceRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.UpdateConnectorRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.VpcDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.WorkerConfigurationDescription;
@@ -33,7 +35,9 @@ import software.amazon.awssdk.services.kafkaconnect.model.WorkerLogDeliveryDescr
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -54,7 +58,8 @@ public class Translator {
      * @param model resource model
      * @return createConnectorRequest the kafkaconnect request to create a resource
      */
-    public CreateConnectorRequest translateToCreateRequest(final ResourceModel model) {
+    public CreateConnectorRequest translateToCreateRequest(final ResourceModel model,
+        final Map<String, String> tagsForCreate) {
         return CreateConnectorRequest.builder()
             .capacity(resourceCapacityToSdkCapacity(model.getCapacity()))
             .connectorConfiguration(model.getConnectorConfiguration())
@@ -72,6 +77,7 @@ public class Translator {
             .logDelivery(resourceLogDeliveryToSdkLogDelivery(model.getLogDelivery()))
             .serviceExecutionRoleArn(model.getServiceExecutionRoleArn())
             .workerConfiguration(resourceWorkerConfigurationToSdkWorkerConfiguration(model.getWorkerConfiguration()))
+            .tags(tagsForCreate)
             .build();
     }
 
@@ -566,5 +572,32 @@ public class Translator {
             .revision(workerConfigurationDescription.revision())
             .workerConfigurationArn(workerConfigurationDescription.workerConfigurationArn())
             .build();
+    }
+
+    /**
+     * Request to add tags to a resource
+     *
+     * @param model resource model
+     * @return awsRequest the aws service request to create a resource
+     */
+    static TagResourceRequest tagResourceRequest(final ResourceModel model, final Map<String, String> addedTags) {
+        return TagResourceRequest.builder()
+                .resourceArn(model.getConnectorArn())
+                .tags(addedTags)
+                .build();
+    }
+
+    /**
+     * Request to add tags to a resource
+     *
+     * @param model resource model
+     * @return awsRequest the aws service request to create a resource
+     */
+    static UntagResourceRequest untagResourceRequest(final ResourceModel model, final Set<String> removedTags) {
+        return UntagResourceRequest.builder()
+                .resourceArn(model.getConnectorArn())
+                .tagKeys(removedTags)
+                .build();
+
     }
 }

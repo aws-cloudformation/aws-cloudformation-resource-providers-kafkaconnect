@@ -1,5 +1,7 @@
 package software.amazon.kafkaconnect.connector;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import software.amazon.awssdk.awscore.AwsRequest;
@@ -16,6 +18,13 @@ import software.amazon.cloudformation.proxy.ProxyClient;
 public class AbstractTestBase {
     protected static final Credentials MOCK_CREDENTIALS = new Credentials("accessKey", "secretKey", "token");
     protected static final LoggerProxy logger = new LoggerProxy();
+
+    protected static final Map<String, String> TAGS = new HashMap<String, String>() {
+        {
+            put("TEST_TAG1", "TEST_TAG_VALUE1");
+            put("TEST_TAG2", "TEST_TAG_VALUE2");
+        }
+    };
 
     static ProxyClient<KafkaConnectClient> proxyStub(
         final AmazonWebServicesClientProxy proxy,

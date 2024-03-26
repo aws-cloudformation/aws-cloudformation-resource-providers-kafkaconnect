@@ -33,6 +33,8 @@ import software.amazon.awssdk.services.kafkaconnect.model.ScaleInPolicyDescripti
 import software.amazon.awssdk.services.kafkaconnect.model.ScaleInPolicyUpdate;
 import software.amazon.awssdk.services.kafkaconnect.model.ScaleOutPolicyDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.ScaleOutPolicyUpdate;
+import software.amazon.awssdk.services.kafkaconnect.model.TagResourceRequest;
+import software.amazon.awssdk.services.kafkaconnect.model.UntagResourceRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.UpdateConnectorRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.VpcDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.WorkerConfigurationDescription;
@@ -49,6 +51,7 @@ import java.util.Set;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static software.amazon.kafkaconnect.connector.AbstractTestBase.TAGS;
 
 @ExtendWith(MockitoExtension.class)
 public class TranslatorTest {
@@ -57,13 +60,17 @@ public class TranslatorTest {
 
     @Test
     public void translateToCreateRequest_fullConnector_success() {
-        compareCreateRequest(translator.translateToCreateRequest(TestData.FULL_RESOURCE_CREATE_MODEL),
+        compareCreateRequest(
+            translator.translateToCreateRequest(TestData.FULL_RESOURCE_CREATE_MODEL,
+                TagHelper.convertToMap(TestData.FULL_RESOURCE_CREATE_MODEL.getTags())),
             TestData.COMPLETE_CREATE_CONNECTOR_REQUEST);
     }
 
     @Test
     public void translateToCreateRequest_minimalConnector_success() {
-        compareCreateRequest(translator.translateToCreateRequest(TestData.MINIMAL_RESOURCE_CREATE_MODEL),
+        compareCreateRequest(
+            translator.translateToCreateRequest(TestData.MINIMAL_RESOURCE_CREATE_MODEL,
+                TagHelper.convertToMap(TestData.MINIMAL_RESOURCE_CREATE_MODEL.getTags())),
             TestData.MINIMAL_CREATE_CONNECTOR_REQUEST);
     }
 
@@ -107,6 +114,20 @@ public class TranslatorTest {
     public void translateToUpdateRequest_success() {
         assertThat(translator.translateToUpdateRequest(TestData.UPDATE_REQUEST_RESOURCE_MODEL))
             .isEqualTo(TestData.UPDATE_CONNECTOR_REQUEST);
+    }
+
+    @Test
+    public void translateToTagResourceRequest_success() {
+        assertThat(Translator.tagResourceRequest(TestData.TAG_RESOURCE_REQUEST_RESOURCE_MODEL, TAGS))
+                .isEqualTo(TestData.TAG_RESOURCE_REQUEST);
+    }
+
+    @Test
+    public void translateToUntagResourceRequest_success() {
+        final Set<String> tagsToUntag = new HashSet<>();
+        tagsToUntag.add(TestData.TAG_KEY);
+        assertThat(Translator.untagResourceRequest(TestData.UNTAG_RESOURCE_REQUEST_RESOURCE_MODEL, tagsToUntag))
+                .isEqualTo(TestData.UNTAG_RESOURCE_REQUEST);
     }
 
     private void compareCreateRequest(final CreateConnectorRequest request1, final CreateConnectorRequest request2) {
@@ -187,6 +208,7 @@ public class TranslatorTest {
             OffsetDateTime.parse("2021-03-04T14:03:40.818Z").toInstant();
         private static final String CURRENT_VERSION = "AB1CDQEFGHZ5";
         private static final String NEXT_TOKEN = "1234abcd";
+        private static final String TAG_KEY = "key";
         private static final int MAX_WORKER_COUNT = 10;
         private static final int MIN_WORKER_COUNT = 1;
         private static final int SCALE_IN_UTIL_PERCENT = 75;
@@ -771,5 +793,27 @@ public class TranslatorTest {
                 .workerConfigurationArn(WORKER_CONFIGURATION_ARN)
                 .build();
         }
+
+        private static final ResourceModel TAG_RESOURCE_REQUEST_RESOURCE_MODEL =
+                ResourceModel.builder()
+                        .connectorArn(CONNECTOR_ARN)
+                        .build();
+
+        private static final ResourceModel UNTAG_RESOURCE_REQUEST_RESOURCE_MODEL =
+                ResourceModel.builder()
+                        .connectorArn(CONNECTOR_ARN)
+                        .build();
+
+        private static final TagResourceRequest TAG_RESOURCE_REQUEST =
+                TagResourceRequest.builder()
+                        .tags(TAGS)
+                        .resourceArn(CONNECTOR_ARN)
+                        .build();
+
+        private static final UntagResourceRequest UNTAG_RESOURCE_REQUEST =
+                UntagResourceRequest.builder()
+                        .tagKeys(TAG_KEY)
+                        .resourceArn(CONNECTOR_ARN)
+                        .build();
     }
 }
