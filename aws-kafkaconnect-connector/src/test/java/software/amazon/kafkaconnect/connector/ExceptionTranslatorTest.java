@@ -43,7 +43,7 @@ public class ExceptionTranslatorTest {
             .build();
 
         runTranslateToCfnExceptionAndVerifyOutput(exception, CfnInvalidRequestException.class,
-            "Invalid request provided: AWS::KafkaConnect::Connector");
+            "Invalid request provided: " + TEST_MESSAGE);
     }
 
     @Test
@@ -83,8 +83,7 @@ public class ExceptionTranslatorTest {
             .message(TEST_MESSAGE)
             .build();
 
-        runTranslateToCfnExceptionAndVerifyOutput(exception, CfnGeneralServiceException.class,
-            "Error occurred during operation '" + TEST_MESSAGE + "'.");
+        runTranslateToCfnExceptionAndVerifyOutput(exception, CfnGeneralServiceException.class, TEST_MESSAGE);
     }
 
     private void runTranslateToCfnExceptionAndVerifyOutput(final AwsServiceException exception,
