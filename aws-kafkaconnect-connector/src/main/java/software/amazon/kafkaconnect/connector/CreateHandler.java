@@ -71,9 +71,11 @@ public class CreateHandler extends BaseHandlerStd {
 
         this.logger = logger;
 
-        return ProgressEvent.progress(request.getDesiredResourceState(), callbackContext)
+        final ResourceModel model = request.getDesiredResourceState();
+
+        return ProgressEvent.progress(model, callbackContext)
             .then(progress ->
-                initiateCreateConnector(proxy, proxyClient, progress, "AWS-KafkaConnect-Connector::Create"))
+                initiateCreateConnector(proxy, proxyClient, progress, "AWS-KafkaConnect-Connector::Create", request))
             .then(progress ->
                 stabilize(proxy, proxyClient, progress, "AWS-KafkaConnect-Connector::PostCreateStabilize"))
             .then(progress -> readHandler.handleRequest(proxy, request, callbackContext, proxyClient, logger));
@@ -83,10 +85,12 @@ public class CreateHandler extends BaseHandlerStd {
         final AmazonWebServicesClientProxy proxy,
         final ProxyClient<KafkaConnectClient> proxyClient,
         final ProgressEvent<ResourceModel, CallbackContext> progress,
-        final String callGraph) {
+        final String callGraph,
+        final ResourceHandlerRequest<ResourceModel> request) {
 
         return proxy.initiate(callGraph, proxyClient, progress.getResourceModel(), progress.getCallbackContext())
-            .translateToServiceRequest(translator::translateToCreateRequest)
+            .translateToServiceRequest(_resourceModel -> translator.translateToCreateRequest(_resourceModel,
+                TagHelper.generateTagsForCreate(request)))
             .makeServiceCall(this::runCreateConnector)
             .done(this::setConnectorArn);
     }
