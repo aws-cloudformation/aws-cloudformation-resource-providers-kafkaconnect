@@ -18,10 +18,16 @@ import software.amazon.awssdk.services.kafkaconnect.model.DescribeConnectorRespo
 import software.amazon.awssdk.services.kafkaconnect.model.KafkaClusterClientAuthenticationDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.KafkaClusterDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.KafkaClusterEncryptionInTransitDescription;
+import software.amazon.awssdk.services.kafkaconnect.model.ListTagsForResourceRequest;
+import software.amazon.awssdk.services.kafkaconnect.model.ListTagsForResourceResponse;
 import software.amazon.awssdk.services.kafkaconnect.model.NotFoundException;
 import software.amazon.awssdk.services.kafkaconnect.model.PluginDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.ProvisionedCapacityDescription;
 import software.amazon.awssdk.services.kafkaconnect.model.ProvisionedCapacityUpdate;
+import software.amazon.awssdk.services.kafkaconnect.model.TagResourceRequest;
+import software.amazon.awssdk.services.kafkaconnect.model.TagResourceResponse;
+import software.amazon.awssdk.services.kafkaconnect.model.UntagResourceRequest;
+import software.amazon.awssdk.services.kafkaconnect.model.UntagResourceResponse;
 import software.amazon.awssdk.services.kafkaconnect.model.UpdateConnectorRequest;
 import software.amazon.awssdk.services.kafkaconnect.model.UpdateConnectorResponse;
 import software.amazon.awssdk.services.kafkaconnect.model.VpcDescription;
@@ -41,12 +47,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -130,6 +139,8 @@ public class UpdateHandlerTest extends AbstractTestBase {
             .thenReturn(updatingDescribeConnectorResponse)
             .thenReturn(updatingDescribeConnectorResponse)
             .thenReturn(runningDescribeConnectorResponse);
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(TestData.LIST_TAGS_FOR_RESOURCE_RESPONSE);
 
         final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(proxy,
             TestData.resourceHandlerRequest(), new CallbackContext(), proxyClient, logger);
@@ -137,6 +148,230 @@ public class UpdateHandlerTest extends AbstractTestBase {
         final ProgressEvent<ResourceModel, CallbackContext> expected =
             TestData.describeResponse(updatedResourceModel);
         assertThat(response).isEqualTo(expected);
+    }
+
+    @Test
+    public void handleRequest_addNewTags_success() {
+        final Set<Tag> tagsSet = new HashSet<>();
+        tagsSet.add(Tag.builder().key(TestData.CONNECTOR_TAG_KEY).value(TestData.CONNECTOR_TAG_VALUE).build());
+        final Map<String, String> tagsMap = new HashMap<>();
+        tagsMap.put(TestData.CONNECTOR_TAG_KEY, TestData.CONNECTOR_TAG_VALUE);
+        final ResourceModel model = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .tags(tagsSet)
+                .build();
+        final ResourceModel previousModel = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .build();
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(ListTagsForResourceResponse
+                .builder()
+                .tags(tagsMap)
+                .build());
+        when(translator.translateToReadRequest(model))
+                .thenReturn(TestData.describeConnectorRequest());
+        final DescribeConnectorResponse unchangedDescribeConnectorResponse =
+                TestData.unchangedDescribeConnectorResponse(TestData.unchangedCapacityDescription(), ConnectorState.RUNNING);
+        when(proxyClient.injectCredentialsAndInvokeV2(
+                TestData.describeConnectorRequest(), kafkaConnectClient::describeConnector
+        )).thenReturn(unchangedDescribeConnectorResponse);
+        when(translator.translateFromReadResponse(unchangedDescribeConnectorResponse))
+                .thenReturn(model);
+        when(proxyClient.client().tagResource(any(TagResourceRequest.class)))
+                .thenReturn(TagResourceResponse.builder().build());
+
+        final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(proxy,
+                TestData.resourceHandlerRequest(model, previousModel), new CallbackContext(), proxyClient, logger);
+
+        final ProgressEvent<ResourceModel, CallbackContext> expected =
+                TestData.describeResponse(model);
+        assertThat(response).isEqualTo(expected);
+        verify(proxyClient.client(), times(1)).tagResource(any(TagResourceRequest.class));
+        verify(proxyClient.client(), never()).untagResource(any(UntagResourceRequest.class));
+        verify(proxyClient.client(), times(2)).describeConnector(any(DescribeConnectorRequest.class));
+        verify(proxyClient.client(), times(1)).listTagsForResource(any(ListTagsForResourceRequest.class));
+    }
+
+
+    @Test
+    public void handleRequest_updateTags_success() {
+        final Set<Tag> tagsSet = new HashSet<>();
+        tagsSet.add(Tag.builder().key(TestData.CONNECTOR_TAG_KEY).value(TestData.CONNECTOR_TAG_VALUE).build());
+        final Set<Tag> prevTagsSet = new HashSet<>();
+        prevTagsSet.add(Tag.builder().key(TestData.CONNECTOR_TAG_KEY).value("OLD_VALUE").build());
+        final Map<String, String> tagsMap = new HashMap<>();
+        tagsMap.put(TestData.CONNECTOR_TAG_KEY, TestData.CONNECTOR_TAG_VALUE);
+        final ResourceModel model = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .tags(tagsSet)
+                .build();
+        final ResourceModel previousModel = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .tags(prevTagsSet)
+                .build();
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(ListTagsForResourceResponse
+                .builder()
+                .tags(tagsMap)
+                .build());
+        when(translator.translateToReadRequest(model))
+                .thenReturn(TestData.describeConnectorRequest());
+        final DescribeConnectorResponse unchangedDescribeConnectorResponse =
+                TestData.unchangedDescribeConnectorResponse(TestData.unchangedCapacityDescription(), ConnectorState.RUNNING);
+        when(proxyClient.injectCredentialsAndInvokeV2(
+                TestData.describeConnectorRequest(), kafkaConnectClient::describeConnector
+        )).thenReturn(unchangedDescribeConnectorResponse);
+        when(translator.translateFromReadResponse(unchangedDescribeConnectorResponse))
+                .thenReturn(model);
+        when(proxyClient.client().tagResource(any(TagResourceRequest.class)))
+                .thenReturn(TagResourceResponse.builder().build());
+
+        final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(proxy,
+                TestData.resourceHandlerRequest(model, previousModel), new CallbackContext(), proxyClient, logger);
+
+        final ProgressEvent<ResourceModel, CallbackContext> expected =
+                TestData.describeResponse(model);
+        assertThat(response).isEqualTo(expected);
+        verify(proxyClient.client(), times(2)).describeConnector(any(DescribeConnectorRequest.class));
+        verify(proxyClient.client(), times(1)).listTagsForResource(any(ListTagsForResourceRequest.class));
+        verify(proxyClient.client(), never()).untagResource(any(UntagResourceRequest.class));
+        verify(proxyClient.client(), times(1)).tagResource(any(TagResourceRequest.class));
+    }
+
+    @Test
+    public void handleRequest_removeTags_success() {
+        final Set<Tag> tagsSet = new HashSet<>();
+        tagsSet.add(Tag.builder().key(TestData.CONNECTOR_TAG_KEY).value(TestData.CONNECTOR_TAG_VALUE).build());
+        final Map<String, String> tagsMap = new HashMap<>();
+        tagsMap.put(TestData.CONNECTOR_TAG_KEY, TestData.CONNECTOR_TAG_VALUE);
+        final ResourceModel model = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .build();
+        final ResourceModel previousModel = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .tags(tagsSet)
+                .build();
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(ListTagsForResourceResponse
+                .builder()
+                .build());
+        when(translator.translateToReadRequest(model))
+                .thenReturn(TestData.describeConnectorRequest());
+        final DescribeConnectorResponse unchangedDescribeConnectorResponse =
+                TestData.unchangedDescribeConnectorResponse(TestData.unchangedCapacityDescription(), ConnectorState.RUNNING);
+        when(proxyClient.injectCredentialsAndInvokeV2(
+                TestData.describeConnectorRequest(), kafkaConnectClient::describeConnector
+        )).thenReturn(unchangedDescribeConnectorResponse);
+        when(translator.translateFromReadResponse(unchangedDescribeConnectorResponse))
+                .thenReturn(model);
+        when(proxyClient.client().untagResource(any(UntagResourceRequest.class)))
+                .thenReturn(UntagResourceResponse.builder().build());
+
+        final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(proxy,
+                TestData.resourceHandlerRequest(model, previousModel), new CallbackContext(), proxyClient, logger);
+
+        final ProgressEvent<ResourceModel, CallbackContext> expected =
+                TestData.describeResponse(model);
+        assertThat(response).isEqualTo(expected);
+        verify(proxyClient.client(), times(2)).describeConnector(any(DescribeConnectorRequest.class));
+        verify(proxyClient.client(), times(1)).listTagsForResource(any(ListTagsForResourceRequest.class));
+        verify(proxyClient.client(), times(1)).untagResource(any(UntagResourceRequest.class));
+        verify(proxyClient.client(), never()).tagResource(any(TagResourceRequest.class));
+    }
+
+    @Test
+    public void handleRequest_addRemoveTags_success() {
+        final String tagKeyRemove = "TEST_KEY_REMOVE";
+        final String tagValueRemove = "TEST_VALUE_REMOVE";
+        final Set<Tag> tagsSet = new HashSet<>();
+        tagsSet.add(Tag.builder().key(TestData.CONNECTOR_TAG_KEY).value(TestData.CONNECTOR_TAG_VALUE).build());
+        final Set<Tag> prevTagsSet = new HashSet<>();
+        prevTagsSet.add(Tag.builder().key(tagKeyRemove).value(tagValueRemove).build());
+        final Map<String, String> tagsMap = new HashMap<>();
+        tagsMap.put(TestData.CONNECTOR_TAG_KEY, TestData.CONNECTOR_TAG_VALUE);
+        final ResourceModel model = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .tags(tagsSet)
+                .build();
+        final ResourceModel previousModel = TestData.resourceModelWithName(TestData.CONNECTOR_NAME).toBuilder()
+                .tags(prevTagsSet)
+                .build();
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(ListTagsForResourceResponse
+                .builder()
+                .tags(tagsMap)
+                .build());
+        when(translator.translateToReadRequest(model))
+                .thenReturn(TestData.describeConnectorRequest());
+        final DescribeConnectorResponse unchangedDescribeConnectorResponse =
+                TestData.unchangedDescribeConnectorResponse(TestData.unchangedCapacityDescription(), ConnectorState.RUNNING);
+        when(proxyClient.injectCredentialsAndInvokeV2(
+                TestData.describeConnectorRequest(), kafkaConnectClient::describeConnector
+        )).thenReturn(unchangedDescribeConnectorResponse);
+        when(translator.translateFromReadResponse(unchangedDescribeConnectorResponse))
+                .thenReturn(model);
+        when(proxyClient.client().untagResource(any(UntagResourceRequest.class)))
+                .thenReturn(UntagResourceResponse.builder().build());
+
+        final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(proxy,
+                TestData.resourceHandlerRequest(model, previousModel), new CallbackContext(), proxyClient, logger);
+
+        final ProgressEvent<ResourceModel, CallbackContext> expected =
+                TestData.describeResponse(model);
+        assertThat(response).isEqualTo(expected);
+        verify(proxyClient.client(), times(2)).describeConnector(any(DescribeConnectorRequest.class));
+        verify(proxyClient.client(), times(1)).listTagsForResource(any(ListTagsForResourceRequest.class));
+        verify(proxyClient.client(), times(1)).untagResource(any(UntagResourceRequest.class));
+        verify(proxyClient.client(), times(1)).tagResource(any(TagResourceRequest.class));
+    }
+
+    @Test
+    public void handleRequest_updateBothTagsAndCapacity_success() {
+        final Set<Tag> tagsSet = new HashSet<>();
+        tagsSet.add(Tag.builder().key(TestData.CONNECTOR_TAG_KEY).value(TestData.CONNECTOR_TAG_VALUE).build());
+        final Map<String, String> tagsMap = new HashMap<>();
+        tagsMap.put(TestData.CONNECTOR_TAG_KEY, TestData.CONNECTOR_TAG_VALUE);
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(ListTagsForResourceResponse
+                .builder()
+                .tags(tagsMap)
+                .build());
+        final ResourceModel requestResourceModel = TestData.resourceModelWithCapacity(
+                TestData.updatedCapacityOnlyProvisionedCapacity()).toBuilder()
+                .tags(tagsSet).build();
+        final DescribeConnectorResponse unchangedDescribeConnectorResponse =
+                TestData.unchangedDescribeConnectorResponse(TestData.unchangedCapacityDescription(),
+                        ConnectorState.RUNNING);
+        final ResourceModel unchangedDescribeResponseTranslatedToResourceModel =
+                TestData.resourceModelWithCapacity(TestData.unchangedCapacity());
+        final DescribeConnectorResponse updatedDescribeConnectorResponse =
+                TestData.updatedDescribeConnectorResponse(TestData.capacityDescriptionOnlyProvisionedCapacity(),
+                        ConnectorState.RUNNING);
+        final ResourceModel updatedResourceModel =
+                TestData.resourceModelWithCapacity(TestData.updatedCapacityOnlyProvisionedCapacity()).toBuilder()
+                        .tags(tagsSet).build();
+        final DescribeConnectorRequest describeConnectorRequest = TestData.describeConnectorRequest();
+        setupTranslateToReadMockWithMultipleInputs(requestResourceModel,
+                unchangedDescribeResponseTranslatedToResourceModel, describeConnectorRequest);
+        when(proxyClient.injectCredentialsAndInvokeV2(
+                describeConnectorRequest,
+                kafkaConnectClient::describeConnector
+        ))
+                .thenReturn(unchangedDescribeConnectorResponse)
+                .thenReturn(unchangedDescribeConnectorResponse)
+                .thenReturn(updatedDescribeConnectorResponse);
+        setupTranslateFromReadMockWithMultipleInputs(
+                asList(unchangedDescribeConnectorResponse, updatedDescribeConnectorResponse),
+                asList(unchangedDescribeResponseTranslatedToResourceModel, updatedResourceModel));
+        setupMocksForUpdateConnectorSuccess(updatedResourceModel);
+        when(proxyClient.client().tagResource(any(TagResourceRequest.class)))
+                .thenReturn(TagResourceResponse.builder().build());
+
+        final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(proxy,
+                TestData.resourceHandlerRequest(requestResourceModel, unchangedDescribeResponseTranslatedToResourceModel),
+                new CallbackContext(), proxyClient, logger);
+
+        final ProgressEvent<ResourceModel, CallbackContext> expected =
+                TestData.describeResponse(updatedResourceModel);
+        assertThat(response).isEqualTo(expected);
+        verify(proxyClient.client(), times(4)).describeConnector(any(DescribeConnectorRequest.class));
+        verify(proxyClient.client(), times(1)).updateConnector(any(UpdateConnectorRequest.class));
+        verify(proxyClient.client(), times(1)).listTagsForResource(any(ListTagsForResourceRequest.class));
+        verify(proxyClient.client(), never()).untagResource(any(UntagResourceRequest.class));
+        verify(proxyClient.client(), times(1)).tagResource(any(TagResourceRequest.class));
     }
 
     @Test
@@ -256,24 +491,6 @@ public class UpdateHandlerTest extends AbstractTestBase {
         runHandlerAndAssertExceptionThrownWithMessage(TestData.RESOURCE_HANDLER_REQUEST_AUTOSCALING,
             CfnGeneralServiceException.class, String.format("Error occurred during operation 'Couldn't " +
                 "update %s due to update failure. Resource reverted to previous state'.", ResourceModel.TYPE_NAME));
-    }
-
-    @Test
-    public void handleRequest_throwsCfnNotUpdatableException_whenConnectorNotRunning() {
-        final ResourceModel resourceModel = TestData.resourceModelWithCapacity(TestData
-            .updatedCapacityOnlyProvisionedCapacity());
-        final DescribeConnectorResponse describeConnectorResponse = TestData.unchangedDescribeConnectorResponse(
-            TestData.capacityDescriptionOnlyProvisionedCapacity(), ConnectorState.FAILED);
-        final DescribeConnectorRequest describeConnectorRequest = TestData.describeConnectorRequest();
-        when(translator.translateToReadRequest(resourceModel)).thenReturn(describeConnectorRequest);
-        when(proxyClient.injectCredentialsAndInvokeV2(
-            describeConnectorRequest,
-            kafkaConnectClient::describeConnector)
-        ).thenReturn(describeConnectorResponse);
-
-        runHandlerAndAssertExceptionThrownWithMessage(TestData.resourceHandlerRequest(),
-            CfnNotUpdatableException.class, String.format("Resource of type '%s' with identifier '%s' is not " +
-                "updatable with parameters provided.", ResourceModel.TYPE_NAME, TestData.CONNECTOR_ARN));
     }
 
     @Test
@@ -397,10 +614,10 @@ public class UpdateHandlerTest extends AbstractTestBase {
 
     private void runSuccessfulHandleRequest(final ResourceModel requestResourceModel) {
         final DescribeConnectorResponse unchangedDescribeConnectorResponse =
-            TestData.unchangedDescribeConnectorResponse(TestData.capacityDescriptionOnlyProvisionedCapacity(),
+            TestData.unchangedDescribeConnectorResponse(TestData.unchangedCapacityDescription(),
                 ConnectorState.RUNNING);
         final ResourceModel unchangedDescribeResponseTranslatedToResourceModel =
-            TestData.resourceModelWithCapacity(TestData.updatedCapacityOnlyProvisionedCapacity());
+            TestData.resourceModelWithCapacity(TestData.unchangedCapacity());
         final DescribeConnectorResponse updatedDescribeConnectorResponse =
             TestData.updatedDescribeConnectorResponse(TestData.capacityDescriptionOnlyProvisionedCapacity(),
                 ConnectorState.RUNNING);
@@ -419,7 +636,9 @@ public class UpdateHandlerTest extends AbstractTestBase {
         setupTranslateFromReadMockWithMultipleInputs(
             asList(unchangedDescribeConnectorResponse, updatedDescribeConnectorResponse),
             asList(unchangedDescribeResponseTranslatedToResourceModel, updatedResourceModel));
-        setupMocksForUpdateConnectorSuccess(unchangedDescribeResponseTranslatedToResourceModel);
+        setupMocksForUpdateConnectorSuccess(updatedResourceModel);
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(TestData.LIST_TAGS_FOR_RESOURCE_RESPONSE);
 
         final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(proxy,
             TestData.resourceHandlerRequest(), new CallbackContext(), proxyClient, logger);
@@ -528,12 +747,15 @@ public class UpdateHandlerTest extends AbstractTestBase {
             ResourceHandlerRequest
                 .<ResourceModel>builder()
                 .desiredResourceState(resourceModelWithCapacity(capacityOnlyAutoscaling()))
+                .previousResourceState(resourceModelWithCapacity(UNCHANGED_CAPACITY_ONLY_AUTOSCALING))
                 .build();
         private static final ResourceHandlerRequest<ResourceModel> CREATE_ONLY_UPDATE_HANDLER_REQUEST =
             ResourceHandlerRequest
                 .<ResourceModel>builder()
                 .desiredResourceState(resourceModelWithName(CONNECTOR_NAME))
                 .build();
+        private static final String CONNECTOR_TAG_KEY = "unit-test-key";
+        private static final String CONNECTOR_TAG_VALUE = "unit-test-value";
 
         private static Capacity unchangedCapacity() {
             return Capacity.builder()
@@ -600,7 +822,17 @@ public class UpdateHandlerTest extends AbstractTestBase {
             return ResourceHandlerRequest
                 .<ResourceModel>builder()
                 .desiredResourceState(resourceModelWithCapacity(updatedCapacityOnlyProvisionedCapacity()))
+                .previousResourceState(resourceModelWithCapacity(unchangedCapacity()))
                 .build();
+        }
+
+        private static ResourceHandlerRequest<ResourceModel> resourceHandlerRequest(final ResourceModel desiredMorel,
+                                                                                    final ResourceModel previousModel) {
+            return ResourceHandlerRequest
+                    .<ResourceModel>builder()
+                    .desiredResourceState(desiredMorel)
+                    .previousResourceState(previousModel)
+                    .build();
         }
 
         private static UpdateConnectorResponse updateConnectorResponse() {
@@ -616,7 +848,7 @@ public class UpdateHandlerTest extends AbstractTestBase {
                 .build();
         }
 
-        private static final ProgressEvent<ResourceModel, CallbackContext> describeResponse(
+        private static ProgressEvent<ResourceModel, CallbackContext> describeResponse(
             final ResourceModel resourceModel){
 
             return ProgressEvent.<ResourceModel, CallbackContext>builder()
@@ -690,5 +922,16 @@ public class UpdateHandlerTest extends AbstractTestBase {
                 .serviceExecutionRoleArn(SERVICE_EXECUTION_ROLE_ARN)
                 .build();
         }
+
+        private static final ListTagsForResourceRequest LIST_TAGS_FOR_RESOURCE_REQUEST =
+                ListTagsForResourceRequest.builder()
+                        .resourceArn(CONNECTOR_ARN)
+                        .build();
+
+        private static final ListTagsForResourceResponse LIST_TAGS_FOR_RESOURCE_RESPONSE =
+                ListTagsForResourceResponse
+                        .builder()
+                        .tags(TAGS)
+                        .build();
     }
 }

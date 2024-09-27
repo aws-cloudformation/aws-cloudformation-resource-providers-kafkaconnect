@@ -21,6 +21,8 @@ import software.amazon.awssdk.services.kafkaconnect.model.KafkaClusterClientAuth
 import software.amazon.awssdk.services.kafkaconnect.model.KafkaClusterClientAuthenticationType;
 import software.amazon.awssdk.services.kafkaconnect.model.KafkaClusterEncryptionInTransit;
 import software.amazon.awssdk.services.kafkaconnect.model.KafkaClusterEncryptionInTransitType;
+import software.amazon.awssdk.services.kafkaconnect.model.ListTagsForResourceRequest;
+import software.amazon.awssdk.services.kafkaconnect.model.ListTagsForResourceResponse;
 import software.amazon.awssdk.services.kafkaconnect.model.Plugin;
 import software.amazon.awssdk.services.kafkaconnect.model.ProvisionedCapacity;
 import software.amazon.awssdk.services.kafkaconnect.model.Vpc;
@@ -84,7 +86,7 @@ public class CreateHandlerTest extends AbstractTestBase {
     @Test
     public void handleRequest_success() {
         final ResourceModel resourceModel = TestData.getResourceModel();
-        when(translator.translateToCreateRequest(resourceModel))
+        when(translator.translateToCreateRequest(resourceModel, TagHelper.convertToMap(resourceModel.getTags())))
             .thenReturn(TestData.CREATE_CONNECTOR_REQUEST);
         when(proxyClient.injectCredentialsAndInvokeV2(
             TestData.CREATE_CONNECTOR_REQUEST, kafkaConnectClient::createConnector)
@@ -98,17 +100,22 @@ public class CreateHandlerTest extends AbstractTestBase {
         )).thenReturn(describeConnectorResponse);
         when(translator.translateFromReadResponse(describeConnectorResponse))
             .thenReturn(TestData.RESOURCE_MODEL_WITH_ARN);
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(TestData.LIST_TAGS_FOR_RESOURCE_RESPONSE);
 
+        final ResourceHandlerRequest<ResourceModel> request = TestData.getResourceHandlerRequest(resourceModel);
         final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(
-            proxy, TestData.getResourceHandlerRequest(resourceModel), new CallbackContext(), proxyClient, logger);
+                proxy, request, new CallbackContext(), proxyClient, logger);
 
         assertThat(response).isEqualTo(TestData.DESCRIBE_RESPONSE);
+        assertThat(response.getResourceModel().getTags())
+                .isEqualTo(request.getDesiredResourceState().getTags());
     }
 
     @Test
     public void handleRequest_afterNDescribeConnectors_success() {
         final ResourceModel resourceModel = TestData.getResourceModel();
-        when(translator.translateToCreateRequest(resourceModel))
+        when(translator.translateToCreateRequest(resourceModel, TagHelper.convertToMap(resourceModel.getTags())))
             .thenReturn(TestData.CREATE_CONNECTOR_REQUEST);
         when(proxyClient.injectCredentialsAndInvokeV2(
             TestData.CREATE_CONNECTOR_REQUEST, kafkaConnectClient::createConnector)
@@ -124,11 +131,16 @@ public class CreateHandlerTest extends AbstractTestBase {
                 .thenReturn(describeRunningConnectorResponse);
         when(translator.translateFromReadResponse(describeRunningConnectorResponse))
             .thenReturn(TestData.RESOURCE_MODEL_WITH_ARN);
+        when(proxyClient.injectCredentialsAndInvokeV2(TestData.LIST_TAGS_FOR_RESOURCE_REQUEST,
+                kafkaConnectClient::listTagsForResource)).thenReturn(TestData.LIST_TAGS_FOR_RESOURCE_RESPONSE);
 
+        final ResourceHandlerRequest<ResourceModel> request = TestData.getResourceHandlerRequest(resourceModel);
         final ProgressEvent<ResourceModel, CallbackContext> response = handler.handleRequest(
-            proxy, TestData.getResourceHandlerRequest(resourceModel), new CallbackContext(), proxyClient, logger);
+                proxy, request, new CallbackContext(), proxyClient, logger);
 
         assertThat(response).isEqualTo(TestData.DESCRIBE_RESPONSE);
+        assertThat(response.getResourceModel().getTags())
+                .isEqualTo(request.getDesiredResourceState().getTags());
     }
 
     @Test
@@ -136,7 +148,7 @@ public class CreateHandlerTest extends AbstractTestBase {
         final ResourceModel resourceModel = TestData.getResourceModel();
         final ConflictException cException = ConflictException.builder().build();
         final CfnAlreadyExistsException cfnException = new CfnAlreadyExistsException(cException);
-        when(translator.translateToCreateRequest(resourceModel))
+        when(translator.translateToCreateRequest(resourceModel, TagHelper.convertToMap(resourceModel.getTags())))
             .thenReturn(TestData.CREATE_CONNECTOR_REQUEST);
         when(proxyClient.injectCredentialsAndInvokeV2(
             TestData.CREATE_CONNECTOR_REQUEST,
@@ -192,8 +204,9 @@ public class CreateHandlerTest extends AbstractTestBase {
     public void handleRequest_throwsGeneralServiceException_whenDescribeConnectorThrowsException() {
         final AwsServiceException cException = AwsServiceException.builder()
             .message(TestData.EXCEPTION_MESSAGE).build();
-        when(translator.translateToCreateRequest(TestData.getResourceModel()))
-            .thenReturn(TestData.CREATE_CONNECTOR_REQUEST);
+        when(translator.translateToCreateRequest(TestData.getResourceModel(),
+            TagHelper.convertToMap(TestData.getResourceModel().getTags())))
+                .thenReturn(TestData.CREATE_CONNECTOR_REQUEST);
         when(proxyClient.injectCredentialsAndInvokeV2(
             TestData.CREATE_CONNECTOR_REQUEST, kafkaConnectClient::createConnector)
         ).thenReturn(TestData.CREATE_CONNECTOR_RESPONSE);
@@ -209,7 +222,7 @@ public class CreateHandlerTest extends AbstractTestBase {
     }
 
     private void setupMocksToReturnConnectorState(final ConnectorState connectorState) {
-        when(translator.translateToCreateRequest(TestData.RESOURCE_MODEL))
+        when(translator.translateToCreateRequest(TestData.RESOURCE_MODEL, TagHelper.convertToMap(TestData.RESOURCE_MODEL.getTags())))
             .thenReturn(TestData.CREATE_CONNECTOR_REQUEST);
         when(proxyClient.injectCredentialsAndInvokeV2(
             TestData.CREATE_CONNECTOR_REQUEST, kafkaConnectClient::createConnector)
@@ -262,6 +275,7 @@ public class CreateHandlerTest extends AbstractTestBase {
         private static final ResourceModel RESOURCE_MODEL = ResourceModel
             .builder()
             .connectorName(CONNECTOR_NAME)
+            .tags(TagHelper.convertToSet(TAGS))
             .build();
 
         private static final CreateConnectorRequest CREATE_CONNECTOR_REQUEST =
@@ -299,6 +313,7 @@ public class CreateHandlerTest extends AbstractTestBase {
                         .build())
                     .build()))
                 .serviceExecutionRoleArn(SERVICE_EXECUTION_ROLE_ARN)
+                .tags(TAGS)
                 .build();
 
         private static final CreateConnectorResponse CREATE_CONNECTOR_RESPONSE =
@@ -317,6 +332,7 @@ public class CreateHandlerTest extends AbstractTestBase {
         private static final ResourceModel RESOURCE_MODEL_WITH_ARN = ResourceModel.builder()
             .connectorName(CONNECTOR_NAME)
             .connectorArn(CONNECTOR_ARN)
+            .tags(TagHelper.convertToSet(TAGS))
             .build();
 
         private static final ProgressEvent<ResourceModel, CallbackContext> DESCRIBE_RESPONSE =
@@ -330,6 +346,7 @@ public class CreateHandlerTest extends AbstractTestBase {
 
             return ResourceHandlerRequest.<ResourceModel>builder()
                 .desiredResourceState(resourceModel)
+                .desiredResourceTags(TAGS)
                 .build();
         }
 
@@ -337,6 +354,7 @@ public class CreateHandlerTest extends AbstractTestBase {
             return ResourceModel
                 .builder()
                 .connectorName(CONNECTOR_NAME)
+                .tags(TagHelper.convertToSet(TAGS))
                 .build();
         }
 
@@ -348,5 +366,15 @@ public class CreateHandlerTest extends AbstractTestBase {
                 .connectorState(state)
                 .build();
         }
+
+        private static final ListTagsForResourceRequest LIST_TAGS_FOR_RESOURCE_REQUEST =
+                ListTagsForResourceRequest.builder()
+                        .resourceArn(CONNECTOR_ARN)
+                        .build();
+
+        private static final ListTagsForResourceResponse LIST_TAGS_FOR_RESOURCE_RESPONSE =
+                ListTagsForResourceResponse.builder()
+                        .tags(TAGS)
+                        .build();
     }
 }
